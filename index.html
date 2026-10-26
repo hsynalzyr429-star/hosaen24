@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1020" />
+  <title>صورة إلى مجسم ثلاثي الأبعاد</title>
+
+  <!-- Tailwind CSS عبر CDN لتنسيق الواجهة دون ملفات إضافية -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- خريطة الاستيراد تتيح استخدام Three.js وإضافاته مباشرة من CDN -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(76, 110, 245, .16), transparent 32rem),
+        radial-gradient(circle at 100% 35%, rgba(20, 184, 166, .09), transparent 28rem),
+        #080d19;
+      color: #eef2ff;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button, input { font: inherit; }
+    button:focus-visible, .upload-zone:focus-visible, input:focus-visible {
+      outline: 2px solid #7dd3fc;
+      outline-offset: 3px;
+    }
+    .glass-card {
+      background: rgba(16, 24, 43, .88);
+      border: 1px solid rgba(148, 163, 184, .16);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, .18);
+      backdrop-filter: blur(12px);
+    }
+    .upload-zone {
+      border: 1.5px dashed rgba(148, 163, 184, .42);
+      background: rgba(15, 23, 42, .54);
+      transition: border-color .18s ease, background .18s ease;
+      cursor: pointer;
+    }
+    .upload-zone:hover, .upload-zone.dragging {
+      border-color: #7dd3fc;
+      background: rgba(14, 116, 144, .12);
+    }
+    .primary-btn {
+      background: linear-gradient(105deg, #38bdf8, #6366f1);
+      color: #fff;
+      box-shadow: 0 8px 24px rgba(59, 130, 246, .2);
+      transition: transform .15s ease, opacity .15s ease, filter .15s ease;
+    }
+    .primary-btn:active:not(:disabled) { transform: scale(.985); }
+    button:disabled { cursor: not-allowed; opacity: .42; box-shadow: none; }
+    .viewer-shell {
+      position: relative;
+      height: clamp(280px, 48vh, 430px);
+      width: 100%;
+      overflow: hidden;
+      border-radius: 1rem;
+      background: radial-gradient(ellipse at 50% 42%, #182440, #0b1222 72%);
+      touch-action: pan-y;
+    }
+    .viewer-shell canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    .progress-track { background: rgba(148, 163, 184, .15); }
+    #progressBar { width: 0%; transition: width .22s ease-out; }
+    .mini-grid {
+      background-image: linear-gradient(rgba(148,163,184,.055) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(148,163,184,.055) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+    #imagePreview { object-fit: contain; max-height: 200px; }
+    .status-dot { width: 7px; height: 7px; border-radius: 999px; background: #34d399; display: inline-block; }
+    .hidden { display: none !important; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="mx-auto max-w-6xl px-4 pb-10 pt-6 sm:px-6 sm:pt-10">
+    <!-- رأس الصفحة -->
+    <header class="mb-7 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-sky-300/20 bg-sky-400/10 text-sky-300">
+          <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+            <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+            <path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12.1V21" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight sm:text-xl">صورة إلى مجسم</h1>
+          <p class="mt-0.5 text-xs text-slate-400 sm:text-sm">عارض ثلاثي الأبعاد خفيف للهواتف</p>
+        </div>
+      </div>
+      <div class="hidden items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-300 sm:flex">
+        <span class="status-dot"></span> المعالجة محلياً على جهازك
+      </div>
+    </header>
+
+    <main class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
+      <!-- لوحة رفع الصورة والتحكم -->
+      <section class="glass-card rounded-3xl p-4 sm:p-5">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="font-semibold text-slate-100">١. اختر صورة</h2>
+          <span class="rounded-full bg-slate-700/50 px-2.5 py-1 text-[11px] text-slate-300">JPG / PNG / WEBP</span>
+        </div>
+
+        <input id="imageInput" type="file" accept="image/*" capture="environment" class="hidden" />
+        <button id="uploadZone" type="button" class="upload-zone flex min-h-44 w-full flex-col items-center justify-center rounded-2xl px-4 py-5 text-center">
+          <div id="uploadIcon" class="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-sky-400/10 text-sky-300">
+            <svg viewBox="0 0 24 24" width="27" height="27" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+              <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14" stroke-linecap="round" />
+            </svg>
+          </div>
+          <span id="uploadTitle" class="font-semibold text-slate-100">اضغط لاختيار صورة</span>
+          <span id="uploadSubtitle" class="mt-1 text-xs leading-5 text-slate-400">يمكنك اختيار صورة من المعرض أو التقاط صورة بالكاميرا</span>
+          <img id="imagePreview" class="mt-4 hidden max-w-full rounded-xl border border-white/10" alt="معاينة الصورة المختارة" />
+        </button>
+
+        <div class="mt-4">
+          <label for="depthRange" class="mb-2 flex items-center justify-between text-sm">
+            <span class="text-slate-300">قوة البروز التقريبي</span>
+            <span id="depthValue" class="font-semibold tabular-nums text-sky-300">40%</span>
+          </label>
+          <input id="depthRange" type="range" min="0" max="100" value="40" class="w-full accent-sky-400" />
+          <div class="mt-1 flex justify-between text-[11px] text-slate-500"><span>مسطح</span><span>بارز أكثر</span></div>
+        </div>
+
+        <button id="buildButton" type="button" disabled class="primary-btn mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12.1V21"/></svg>
+          إنشاء معاينة ثلاثية الأبعاد
+        </button>
+
+        <!-- التقدم توضيحي؛ إنشاء التضاريس يتم محلياً ولا تستخدم الخدمة نموذج ذكاء اصطناعي -->
+        <div id="progressPanel" class="mt-5 hidden rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4" aria-live="polite">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <span id="progressLabel" class="text-sm font-medium text-slate-200">تجهيز الصورة...</span>
+            <span id="progressPercent" class="text-sm font-bold tabular-nums text-sky-300">0%</span>
+          </div>
+          <div class="progress-track h-2 overflow-hidden rounded-full"><div id="progressBar" class="h-full rounded-full bg-gradient-to-l from-indigo-400 to-sky-300"></div></div>
+          <p id="progressNote" class="mt-3 text-xs leading-5 text-slate-400">المعالجة محلية على الجهاز.</p>
+        </div>
+
+        <div class="mt-5 rounded-2xl border border-amber-300/15 bg-amber-300/[0.045] p-3.5">
+          <div class="mb-1.5 flex items-center gap-2 text-xs font-semibold text-amber-200">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01" stroke-linecap="round"/></svg>
+            ملاحظة عن دقة التحويل
+          </div>
+          <p class="text-xs leading-5 text-slate-400">هذه نسخة تجريبية خفيفة: تُنشئ بروزاً تقريبياً من سطوع الصورة. لا تستنتج الأجزاء المخفية ولا تنتج مسحاً حقيقياً للجسم من صورة واحدة.</p>
+        </div>
+      </section>
+
+      <!-- عارض المجسم -->
+      <section class="glass-card min-w-0 rounded-3xl p-4 sm:p-5">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 class="font-semibold text-slate-100">٢. عارض المجسم</h2>
+            <p class="mt-1 text-xs text-slate-400">اسحب للتدوير، واستخدم إصبعين للتكبير والتصغير</p>
+          </div>
+          <button id="resetButton" type="button" disabled class="rounded-xl border border-slate-600/70 px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-700/50 disabled:opacity-40">إعادة الضبط</button>
+        </div>
+
+        <div id="emptyViewer" class="viewer-shell mini-grid flex flex-col items-center justify-center px-6 text-center">
+          <div class="mb-4 grid h-16 w-16 place-items-center rounded-3xl border border-slate-500/20 bg-slate-700/20 text-slate-500">
+            <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12.1V21"/></svg>
+          </div>
+          <p class="font-medium text-slate-300">سيظهر المجسم هنا</p>
+          <p class="mt-2 max-w-xs text-xs leading-5 text-slate-500">اختر صورة ثم اضغط على إنشاء معاينة ثلاثية الأبعاد.</p>
+        </div>
+        <div id="viewerShell" class="viewer-shell hidden" aria-label="عارض تفاعلي ثلاثي الأبعاد"></div>
+
+        <div class="mt-4 grid grid-cols-3 gap-2">
+          <div class="rounded-xl border border-white/5 bg-slate-900/55 px-3 py-3 text-center">
+            <div class="mb-1 text-[11px] text-slate-500">نوع الملف</div><div class="text-sm font-semibold text-slate-200">GLB</div>
+          </div>
+          <div class="rounded-xl border border-white/5 bg-slate-900/55 px-3 py-3 text-center">
+            <div class="mb-1 text-[11px] text-slate-500">المعالجة</div><div class="text-sm font-semibold text-slate-200">محلية</div>
+          </div>
+          <div class="rounded-xl border border-white/5 bg-slate-900/55 px-3 py-3 text-center">
+            <div class="mb-1 text-[11px] text-slate-500">الشكل</div><div class="text-sm font-semibold text-slate-200">Relief</div>
+          </div>
+        </div>
+
+        <button id="downloadButton" type="button" disabled class="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 text-sm font-bold text-emerald-200 transition hover:bg-emerald-400/15 disabled:cursor-not-allowed">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3" stroke-linecap="round"/></svg>
+          <span id="downloadLabel">حفظ المجسم بصيغة GLB</span>
+        </button>
+        <p id="message" class="mt-3 min-h-5 text-center text-xs leading-5 text-slate-400" aria-live="polite">لم يتم اختيار صورة بعد.</p>
+      </section>
+    </main>
+
+    <footer class="mx-auto mt-7 max-w-3xl text-center text-[11px] leading-5 text-slate-500">
+      يعتمد تشغيل المكتبات على اتصال بالإنترنت. إذا لم يعمل الملف عند فتحه مباشرة، افتحه من خلال خادم محلي أو استضافة تدعم HTTPS.
+    </footer>
+  </div>
+
+  <!-- التطبيق: رفع الصورة، بناء تضاريس منخفضة التفاصيل، العرض والتصدير -->
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+
+    // عناصر الواجهة
+    const imageInput = document.getElementById("imageInput");
+    const uploadZone = document.getElementById("uploadZone");
+    const uploadTitle = document.getElementById("uploadTitle");
+    const uploadSubtitle = document.getElementById("uploadSubtitle");
+    const uploadIcon = document.getElementById("uploadIcon");
+    const imagePreview = document.getElementById("imagePreview");
+    const buildButton = document.getElementById("buildButton");
+    const progressPanel = document.getElementById("progressPanel");
+    const progressLabel = document.getElementById("progressLabel");
+    const progressPercent = document.getElementById("progressPercent");
+    const progressBar = document.getElementById("progressBar");
+    const progressNote = document.getElementById("progressNote");
+    const depthRange = document.getElementById("depthRange");
+    const depthValue = document.getElementById("depthValue");
+    const emptyViewer = document.getElementById("emptyViewer");
+    const viewerShell = document.getElementById("viewerShell");
+    const resetButton = document.getElementById("resetButton");
+    const downloadButton = document.getElementById("downloadButton");
+    const downloadLabel = document.getElementById("downloadLabel");
+    const message = document.getElementById("message");
+
+    // الحالة الحالية
+    let selectedImage = null;
+    let selectedImageURL = null;
+    let scene = null;
+    let camera = null;
+    let renderer = null;
+    let controls = null;
+    let reliefMesh = null;
+    let reliefMaterial = null;
+    let reliefTexture = null;
+    let luminanceMap = null;
+    let rafId = null;
+    let buildToken = 0;
+
+    // إعدادات الأداء: شبكة بحد أقصى 100 مقطع، وملمس بحد أقصى 1024 بكسل لكل ضلع.
+    const MAX_GRID_EDGE = 100;
+    const MAX_TEXTURE_EDGE = 1024;
+    const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
+
+    function setMessage(text, type = "normal") {
+      message.textContent = text;
+      message.className = "mt-3 min-h-5 text-center text-xs leading-5";
+      if (type === "error") message.classList.add("text-rose-300");
+      else if (type === "success") message.classList.add("text-emerald-300");
+      else message.classList.add("text-slate-400");
+    }
+
+    // إزالة المجسم الحالي وتحرير ذاكرة GPU المرتبطة به.
+    function disposeCurrentModel() {
+      if (reliefMesh && scene) scene.remove(reliefMesh);
+      if (reliefMesh?.geometry) reliefMesh.geometry.dispose();
+      if (reliefMaterial) reliefMaterial.dispose();
+      if (reliefTexture) reliefTexture.dispose();
+      reliefMesh = null;
+      reliefMaterial = null;
+      reliefTexture = null;
+      luminanceMap = null;
+    }
+
+    // إنشاء العارض مرة واحدة وإعادة استخدامه عند اختيار صور أخرى.
+    function initViewer() {
+      if (renderer) return;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b1222);
+
+      camera = new THREE.PerspectiveCamera(38, 1, 0.1, 50);
+      camera.position.set(0, 0, 4.5);
+
+      // تعطيل تنعيم الحواف يقلل كلفة الرسم على الهواتف الضعيفة.
+      renderer = new THREE.WebGLRenderer({
+        antialias: false,
+        alpha: false,
+        powerPreference: "low-power"
+      });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.domElement.setAttribute("aria-label", "يمكن تدوير المجسم بالسحب وتكبيره باللمس");
+      viewerShell.appendChild(renderer.domElement);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.45);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+      keyLight.position.set(-2.5, 3.5, 5);
+      scene.add(ambientLight, keyLight);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.065;
+      controls.enablePan = false;
+      controls.rotateSpeed = 0.75;
+      controls.zoomSpeed = 0.8;
+      controls.minDistance = 1.8;
+      controls.maxDistance = 8;
+      controls.target.set(0, 0, 0);
+      controls.addEventListener("change", requestRender);
+
+      resizeRenderer();
+      window.addEventListener("resize", resizeRenderer, { passive: true });
+      startRenderLoop();
+    }
+
+    // الرسم يتوقف عندما يكون العارض مخفياً أو تبويب المتصفح في الخلفية.
+    function renderFrame() {
+      if (!renderer || !scene || !camera || document.hidden || viewerShell.classList.contains("hidden")) {
+        rafId = null;
+        return;
+      }
+      controls?.update();
+      renderer.render(scene, camera);
+      // متابعة الرسم فقط أثناء وجود عرض نشط؛ الدالة لا تعمل في الخلفية.
+      rafId = requestAnimationFrame(renderFrame);
+    }
+
+    function startRenderLoop() {
+      if (rafId === null && !document.hidden && !viewerShell.classList.contains("hidden")) {
+        rafId = requestAnimationFrame(renderFrame);
+      }
+    }
+
+    function requestRender() {
+      startRenderLoop();
+    }
+
+    function resizeRenderer() {
+      if (!renderer || viewerShell.classList.contains("hidden")) return;
+      const width = Math.max(1, viewerShell.clientWidth);
+      const height = Math.max(1, viewerShell.clientHeight);
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      requestRender();
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) startRenderLoop();
+    });
+
+    // تجهيز نسخة ملمس صغيرة للحفاظ على الذاكرة، مع شبكة هندسية منخفضة التفاصيل.
+    function prepareImageData(image) {
+      const aspect = image.naturalWidth / image.naturalHeight;
+      const scale = Math.min(1, MAX_TEXTURE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+      const textureCanvas = document.createElement("canvas");
+      textureCanvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      textureCanvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const textureContext = textureCanvas.getContext("2d", { alpha: false });
+      textureContext.drawImage(image, 0, 0, textureCanvas.width, textureCanvas.height);
+
+      let segmentsX;
+      let segmentsY;
+      if (aspect >= 1) {
+        segmentsX = MAX_GRID_EDGE;
+        segmentsY = Math.max(16, Math.round(MAX_GRID_EDGE / aspect));
+      } else {
+        segmentsY = MAX_GRID_EDGE;
+        segmentsX = Math.max(16, Math.round(MAX_GRID_EDGE * aspect));
+      }
+      // تجنب شبكة طويلة جداً بسبب صورة بانورامية أو ضيقة بصورة غير معتادة.
+      segmentsX = Math.min(MAX_GRID_EDGE, segmentsX);
+      segmentsY = Math.min(MAX_GRID_EDGE, segmentsY);
+
+      const depthCanvas = document.createElement("canvas");
+      depthCanvas.width = segmentsX + 1;
+      depthCanvas.height = segmentsY + 1;
+      const depthContext = depthCanvas.getContext("2d", { willReadFrequently: true });
+      depthContext.drawImage(image, 0, 0, depthCanvas.width, depthCanvas.height);
+      const pixels = depthContext.getImageData(0, 0, depthCanvas.width, depthCanvas.height).data;
+      const luminance = new Float32Array(depthCanvas.width * depthCanvas.height);
+      for (let p = 0, i = 0; p < pixels.length; p += 4, i++) {
+        // قيمة إضاءة رمادية تقريبية لكل رأس في الشبكة.
+        luminance[i] = (0.2126 * pixels[p] + 0.7152 * pixels[p + 1] + 0.0722 * pixels[p + 2]);
+      }
+
+      return { aspect, textureCanvas, segmentsX, segmentsY, luminance };
+    }
+
+    // تطبيق عمق تقريبي على رؤوس الشبكة بناءً على سطوع البكسلات.
+    function applyDepth() {
+      if (!reliefMesh || !luminanceMap) return;
+      const positions = reliefMesh.geometry.attributes.position;
+      const strength = (Number(depthRange.value) / 100) * 0.72;
+      for (let i = 0; i < positions.count; i++) {
+        positions.setZ(i, ((luminanceMap[i] / 255) - 0.5) * strength);
+      }
+      positions.needsUpdate = true;
+      reliefMesh.geometry.computeVertexNormals();
+      depthValue.textContent = `${depthRange.value}%`;
+      requestRender();
+    }
+
+    function buildRelief(image) {
+      initViewer();
+      disposeCurrentModel();
+
+      const data = prepareImageData(image);
+      luminanceMap = data.luminance;
+
+      // الحفاظ على نسبة أبعاد الصورة، مع جعل أطول ضلع 2.5 وحدة تقريباً.
+      const worldWidth = data.aspect >= 1 ? 2.5 : 2.5 * data.aspect;
+      const worldHeight = data.aspect >= 1 ? 2.5 / data.aspect : 2.5;
+      const geometry = new THREE.PlaneGeometry(worldWidth, worldHeight, data.segmentsX, data.segmentsY);
+      reliefTexture = new THREE.CanvasTexture(data.textureCanvas);
+      reliefTexture.colorSpace = THREE.SRGBColorSpace;
+      reliefTexture.generateMipmaps = false;
+      reliefTexture.minFilter = THREE.LinearFilter;
+      reliefTexture.magFilter = THREE.LinearFilter;
+      reliefTexture.anisotropy = 1;
+
+      reliefMaterial = new THREE.MeshStandardMaterial({
+        map: reliefTexture,
+        roughness: 0.92,
+        metalness: 0,
+        side: THREE.DoubleSide
+      });
+      reliefMesh = new THREE.Mesh(geometry, reliefMaterial);
+      reliefMesh.name = "Approximate_Image_Relief";
+      scene.add(reliefMesh);
+      applyDepth();
+
+      camera.position.set(0, 0, 4.5);
+      controls.target.set(0, 0, 0);
+      controls.update();
+      emptyViewer.classList.add("hidden");
+      viewerShell.classList.remove("hidden");
+      resizeRenderer();
+      resetButton.disabled = false;
+      downloadButton.disabled = false;
+      requestRender();
+    }
+
+    // شريط تقدم بصري بمراحل توضيحية. لا يدّعي أنه تدريب أو استدلال لنموذج AI.
+    function runProgress() {
+      const token = ++buildToken;
+      const stages = [
+        { at: 0, label: "قراءة الصورة وتجهيزها..." },
+        { at: 25, label: "تحليل الإضاءة والألوان..." },
+        { at: 50, label: "بناء شبكة تضاريس خفيفة..." },
+        { at: 75, label: "تهيئة العارض ثلاثي الأبعاد..." },
+        { at: 100, label: "اكتملت المعاينة" }
+      ];
+      progressPanel.classList.remove("hidden");
+      buildButton.disabled = true;
+      imageInput.disabled = true;
+      progressNote.textContent = "تقدم توضيحي؛ إنشاء الشبكة الفعلي يتم على جهازك.";
+      let value = 0;
+      let stageIndex = 0;
+      progressPercent.textContent = "0%";
+      progressBar.style.width = "0%";
+
+      const timer = window.setInterval(() => {
+        if (token !== buildToken) {
+          window.clearInterval(timer);
+          return;
+        }
+        value = Math.min(100, value + (value < 60 ? 4 : 3));
+        while (stageIndex < stages.length - 1 && value >= stages[stageIndex + 1].at) stageIndex++;
+        progressLabel.textContent = stages[stageIndex].label;
+        progressPercent.textContent = `${value}%`;
+        progressBar.style.width = `${value}%`;
+
+        if (value >= 100) {
+          window.clearInterval(timer);
+          try {
+            buildRelief(selectedImage);
+            setMessage("تم إنشاء المعاينة. اسحب الصورة داخل العارض لتدويرها.", "success");
+            progressNote.textContent = "تم إنشاء شبكة منخفضة التفاصيل لتقليل حمل المعالجة.";
+          } catch (error) {
+            console.error(error);
+            setMessage("تعذر إنشاء المجسم. جرّب صورة أصغر أو متصفحاً أحدث يدعم WebGL.", "error");
+            progressNote.textContent = "حدث خطأ أثناء تجهيز الصورة أو إنشاء العارض.";
+          } finally {
+            buildButton.disabled = !selectedImage;
+            imageInput.disabled = false;
+          }
+        }
+      }, 45);
+    }
+
+    // فتح منتقي الصور من زر المنطقة المخصصة.
+    uploadZone.addEventListener("click", () => imageInput.click());
+    uploadZone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") imageInput.click();
+    });
+
+    imageInput.addEventListener("change", () => {
+      const file = imageInput.files && imageInput.files[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        setMessage("الملف المختار ليس صورة مدعومة.", "error");
+        return;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        setMessage("حجم الصورة أكبر من 20 ميغابايت. اختر صورة أصغر لتجنب استهلاك الذاكرة.", "error");
+        imageInput.value = "";
+        return;
+      }
+
+      // إلغاء أي عملية تقدم قديمة عند اختيار ملف جديد.
+      buildToken++;
+      if (selectedImageURL) URL.revokeObjectURL(selectedImageURL);
+      selectedImageURL = URL.createObjectURL(file);
+      imageInput.value = ""; // السماح باختيار الملف نفسه مرة أخرى لاحقاً
+      selectedImage = null;
+      buildButton.disabled = true;
+      downloadButton.disabled = true;
+      resetButton.disabled = true;
+      viewerShell.classList.add("hidden");
+      emptyViewer.classList.remove("hidden");
+      disposeCurrentModel();
+      const image = new Image();
+      image.onload = () => {
+        selectedImage = image;
+        imagePreview.src = selectedImageURL;
+        imagePreview.classList.remove("hidden");
+        uploadTitle.textContent = file.name.length > 28 ? `${file.name.slice(0, 25)}...` : file.name;
+        uploadSubtitle.textContent = `${image.naturalWidth} × ${image.naturalHeight} بكسل`;
+        uploadIcon.classList.add("hidden");
+        buildButton.disabled = false;
+        progressPanel.classList.add("hidden");
+        viewerShell.classList.add("hidden");
+        emptyViewer.classList.remove("hidden");
+        resetButton.disabled = true;
+        downloadButton.disabled = true;
+        disposeCurrentModel();
+        setMessage("تم تحميل الصورة. اضغط إنشاء معاينة لبدء المعالجة.");
+      };
+      image.onerror = () => {
+        setMessage("لم نتمكن من قراءة الصورة. جرّب ملفاً آخر.", "error");
+        URL.revokeObjectURL(selectedImageURL);
+        selectedImageURL = null;
+      };
+      image.src = selectedImageURL;
+    });
+
+    // دعم سحب الصورة وإفلاتها على منطقة الرفع في المتصفحات التي تسمح بذلك.
+    uploadZone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      uploadZone.classList.add("dragging");
+    });
+    uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("dragging"));
+    uploadZone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      uploadZone.classList.remove("dragging");
+      const file = event.dataTransfer?.files?.[0];
+      if (!file) return;
+      try {
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        imageInput.files = transfer.files;
+        imageInput.dispatchEvent(new Event("change"));
+      } catch {
+        setMessage("تعذر استلام الملف المسحوب؛ اضغط منطقة الرفع واختر الصورة.", "error");
+      }
+    });
+
+    buildButton.addEventListener("click", () => {
+      if (!selectedImage) {
+        setMessage("اختر صورة أولاً.", "error");
+        return;
+      }
+      runProgress();
+    });
+
+    depthRange.addEventListener("input", () => {
+      depthValue.textContent = `${depthRange.value}%`;
+      applyDepth();
+    });
+
+    resetButton.addEventListener("click", () => {
+      if (!camera || !controls || !reliefMesh) return;
+      reliefMesh.rotation.set(0, 0, 0);
+      camera.position.set(0, 0, 4.5);
+      controls.target.set(0, 0, 0);
+      controls.update();
+      requestRender();
+    });
+
+    // تصدير شبكة الصورة وملمسها إلى ملف GLB ثنائي يمكن تنزيله على الهاتف.
+    downloadButton.addEventListener("click", () => {
+      if (!reliefMesh) {
+        setMessage("أنشئ المعاينة أولاً قبل حفظ المجسم.", "error");
+        return;
+      }
+      downloadButton.disabled = true;
+      downloadLabel.textContent = "جارٍ تجهيز الملف...";
+      setMessage("يتم تجهيز ملف GLB للتنزيل...");
+
+      const exportScene = new THREE.Scene();
+      const exportMesh = reliefMesh.clone();
+      exportMesh.name = "Approximate_Image_Relief";
+      // تضمين ضوء اتجاهي في الملف كي يظهر السطح المضلع بوضوح في عارض GLB داعم للإضاءة.
+      const exportLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      exportLight.position.set(-2.5, 3.5, 5);
+      exportScene.add(exportLight, exportMesh);
+      const exporter = new GLTFExporter();
+
+      try {
+        exporter.parse(
+          exportScene,
+          (result) => {
+            try {
+              const blob = new Blob([result], { type: "model/gltf-binary" });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = "image-relief.glb";
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+              window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+              setMessage("تم تجهيز الملف. تحقق من مجلد التنزيلات في هاتفك.", "success");
+            } catch (error) {
+              console.error(error);
+              setMessage("تعذر بدء تنزيل الملف على هذا المتصفح.", "error");
+            } finally {
+              downloadButton.disabled = false;
+              downloadLabel.textContent = "حفظ المجسم بصيغة GLB";
+            }
+          },
+          (error) => {
+            console.error(error);
+            setMessage("فشل التصدير. جرّب متصفحاً أحدث أو صورة أخرى.", "error");
+            downloadButton.disabled = false;
+            downloadLabel.textContent = "حفظ المجسم بصيغة GLB";
+          },
+          { binary: true, onlyVisible: true, maxTextureSize: MAX_TEXTURE_EDGE }
+        );
+      } catch (error) {
+        console.error(error);
+        setMessage("حدث خطأ أثناء تصدير GLB.", "error");
+        downloadButton.disabled = false;
+        downloadLabel.textContent = "حفظ المجسم بصيغة GLB";
+      }
+    });
+
+    // تحرير موارد WebGL عند مغادرة الصفحة.
+    window.addEventListener("pagehide", () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      controls?.dispose();
+      disposeCurrentModel();
+      renderer?.dispose();
+      if (selectedImageURL) URL.revokeObjectURL(selectedImageURL);
+    });
+  </script>
+</body>
+</html>
